@@ -332,10 +332,10 @@ def splitData(sessions,mouseIDs,testSize=0.2,seed=0):
     testSessionStartIxs = np.zeros(len(testSessionIxs)+1, dtype=int)
     count = 0
     for i in range(len(testSessionIxs)):
-    	testSessionStartIxs[i] = count
-    	sessLength = testSessionLengths[i]
-    	testTrialIxs[count:count+sessLength] = np.arange(testSessionIxs[i],testSessionIxs[i]+sessLength,1)
-    	count = count+sessLength
+        testSessionStartIxs[i] = count
+        sessLength = testSessionLengths[i]
+        testTrialIxs[count:count+sessLength] = np.arange(testSessionIxs[i],testSessionIxs[i]+sessLength,1)
+        count = count+sessLength
     testSessionStartIxs[-1] = count
 
     # get all the indices of the data points for the test set
@@ -343,10 +343,10 @@ def splitData(sessions,mouseIDs,testSize=0.2,seed=0):
     trainSessionStartIxs = np.zeros(len(trainSessionIxs)+1, dtype=int)
     count = 0
     for i in range(len(trainSessionIxs)):
-    	trainSessionStartIxs[i] = count
-    	sessLength = trainSessionLengths[i]
-    	trainTrialIxs[count:count+sessLength] = np.arange(trainSessionIxs[i],trainSessionIxs[i]+sessLength,1)
-    	count = count+sessLength
+        trainSessionStartIxs[i] = count
+        sessLength = trainSessionLengths[i]
+        trainTrialIxs[count:count+sessLength] = np.arange(trainSessionIxs[i],trainSessionIxs[i]+sessLength,1)
+        count = count+sessLength
     trainSessionStartIxs[-1] = count
 
     return trainTrialIxs, trainSessionStartIxs, testTrialIxs, testSessionStartIxs
@@ -402,3 +402,20 @@ def crossval_split(x,y,sessions,mouseIDs,test_size=0.2, seeds=None):
 
 
 
+
+# Get the index of the last non-NaN value for each row
+# 
+# The loglikelihood returned from fit() is of shape (250,)
+# where 250 is the maximum number of EM iterations
+#
+# So this function can help us get the loglikelihood of the final parameters
+def find_last_non_nan_elements(matrix):
+    last_non_nan_values = np.full(matrix.shape[0], np.nan)
+    
+    for i, row in enumerate(matrix):
+        # Get the index of the last non-NaN value
+        last_non_nan_idx = np.where(~np.isnan(row))[0]
+        if last_non_nan_idx.size > 0:
+            last_non_nan_values[i] = row[last_non_nan_idx[-1]]
+    
+    return last_non_nan_values
