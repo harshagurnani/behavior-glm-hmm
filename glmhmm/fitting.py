@@ -31,12 +31,18 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
         data = np.concatenate(data, axis = 0)
 
     elif isinstance( path, list ): # read data from a list of folders
-        for ff in path:
-            subdir  = alldata+ff
-            if os.path.isfile(subdir):
+        data = []
+        for subdir in path:
+            if os.path.isdir(subdir):
                 subdata = Dataloader_ani(subdir, nprev = nprev, exig = exig)
+            elif os.path.isdir( alldata+subdir):
+                subdata = Dataloader_ani(alldata+subdir, nprev = nprev, exig = exig)
             elif os.path.isfile(subdir):
-                data = Dataloader_sess(subdir, nprev = nprev, exig = exig)
+                subdata = Dataloader_sess(subdir, nprev = nprev, exig = exig)
+            elif os.path.isfile(alldata+subdir):
+                subdata = Dataloader_sess(alldata+subdir, nprev = nprev, exig = exig)
+            data.append(subdata)
+        data = np.concatenate(data, axis = 0)
                 
     elif os.path.isfile(path):  # single session
         data = Dataloader_sess(path, nprev = nprev, exig = exig)
@@ -95,7 +101,7 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
             probR = np.sum(y_train)/len(y_train)
             #print(y_test.shape)
     
-            ll, A, w, pi0 = model.fit(y_train,X_train,A_init,w_init) # fit the model on trainset
+            ll, A, w, pi0 = model.fit(y_train,X_train,A_init,w_init,pi0=pi_init, fit_init_states=True) # fit the model on trainset
             ll = find_last_non_nan_elements(ll.reshape(1, -1))
             lls_train[j, i] = ll[0]
             A_all[j,i] = A
@@ -103,7 +109,7 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
             pi0_all[j,i] = pi0
 
             # testset
-            GLMHMM.n = test_size
+            #GLMHMM.n = test_size
             # convert inferred weights into observation probabilities for each state
             phi = np.zeros((len(X_test),K,C))
             for k in range(K):
@@ -162,7 +168,7 @@ def GridSearch(path, exig, P=4, L=7):
 
 
 # Fine-tune on small data(a file)
-def FineTune(path, nprev, exig, num_latent,A_init,w_init):
+def FineTune(path, nprev, exig, num_latent,A_init,w_init,pi_init=None, tol=3e-4):
     if os.path.isfile(path):
         data = Dataloader_sess(path, nprev = nprev, exig = exig)
     elif os.path.isdir(path):
@@ -183,7 +189,7 @@ def FineTune(path, nprev, exig, num_latent,A_init,w_init):
     _,_,_ = model.generate_params()
     X = data[:,1:-1]
     y = data[:,-1:]
-    ll, A, w, pi0 = model.fit(y,X,A_init,w_init, fit_init_states=True)
+    ll, A, w, pi0 = model.fit(y,X,A_init,w_init, pi0=pi_init, fit_init_states=True,tol=tol)
     ll = find_last_non_nan_elements(ll.reshape(1, -1))
     y = y.ravel()
     return ll,A,w,pi0, X,y,N,K,D,C
@@ -226,7 +232,8 @@ def mostProbSeq( y, A, pi0, phi=None, X=None, w=None ):
     return bestpath
 
 
-def ShuffleControl(path, nprev, exig, num_latent, num_init = 10, verbose=False, alldata='/data/mesoscale_lfads_firing_rates/' ):
+def ShuffleControl(path, nprev, exig, num_latent, num_init = 10, num_folds=10, 
+                   verbose=False, alldata='../example_data/' ):
     # Get data from the given path
     if path is None: #use data from all animals
         data=[]
@@ -234,8 +241,6 @@ def ShuffleControl(path, nprev, exig, num_latent, num_init = 10, verbose=False, 
             for dir in dirs:
                 subdir_path = os.path.join(root, dir)
                 subdata = Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
-                #print(subdir_path)
-                #print(subdata.shape)
                 data.append(subdata)
         data = np.concatenate(data, axis = 0)
                 
@@ -247,12 +252,7 @@ def ShuffleControl(path, nprev, exig, num_latent, num_init = 10, verbose=False, 
     else:
         raise ValueError("The input is neither a file or a folder")
 
-
-    A_orgs = []
-    A_ts = []
-    w_orgs = []
-    w_ts = []
-    N = len(data) # number of data/time points
+    N = len(data) - len(data)//num_folds # number of data/time points
     K = num_latent # number of latent states
     D = data.shape[1] - 2 # number of GLM inputs (regressors)
     if exig:
@@ -261,39 +261,86 @@ def ShuffleControl(path, nprev, exig, num_latent, num_init = 10, verbose=False, 
     else:
         C = 3 # number of observation classes
         prob = "multinomial"
-    model = GLMHMM(N,D,C,K,observations=prob)
     
-    for i in range(10):
+    
+    res_orig = { 'lls_train': np.zeros((num_init, num_folds)),    'lls_test': np.zeros((num_init, num_folds)), 'll0':np.zeros((num_init, num_folds)),
+                 'A_all': np.zeros((num_init, num_folds,K,K)), 'w_all': np.zeros((num_init, num_folds,K,D,C)), 'pi0_all': np.zeros((num_init, num_folds,K))}
+    res_ts = { 'lls_train': np.zeros((num_init, num_folds)),    'lls_test': np.zeros((num_init, num_folds)), 'll0':np.zeros((num_init, num_folds)),
+                 'A_all': np.zeros((num_init, num_folds,K,K)), 'w_all': np.zeros((num_init, num_folds,K,D,C)), 'pi0_all': np.zeros((num_init, num_folds,K))}
+    res_Xs = { 'lls_train': np.zeros((num_init, num_folds)),    'lls_test': np.zeros((num_init, num_folds)), 'll0':np.zeros((num_init, num_folds)),
+                 'A_all': np.zeros((num_init, num_folds,K,K)), 'w_all': np.zeros((num_init, num_folds,K,D,C)), 'pi0_all': np.zeros((num_init, num_folds,K))}
+
+    model = GLMHMM(N,D,C,K,observations=prob)
+    fold_size = len(data) // num_folds
+    train_size = len(data) - fold_size # same as N
+    test_size = fold_size
+    alldata = {'orig':{'X':data[:,1:-1], 'y':data[:,-1], 'res':res_orig}, 
+                   'shf_t':{'X':data[:,1:-1], 'y':data[:,-1], 'res':res_ts}, 
+                   'shf_X':{'X':data[:,1:-1], 'y':data[:,-1], 'res':res_Xs} 
+                }
+    
+    for i in range(num_init):
+        A_init,w_init,pi_init = model.generate_params() 
+
         # Get X and y
         shuffled_indices = np.random.permutation(data.shape[0])
         shfl_time_data = data[shuffled_indices, :] # shuffle the rows of the matrix/shuffle the time
         shfl_X_data = np.hstack((data[shuffled_indices, :-1], data[:, -1:])) # only shuffle the X
         
-        X_org = data[:,1:-1]
-        y_org = data[:,-1]
         X_shf_t = shfl_time_data[:,1:-1]
         y_shf_t = shfl_time_data[:,-1]
-        X_shf_y = shfl_X_data[:,1:-1]
-        y_shf_y = shfl_X_data[:,-1]
-    
-        # Fit model for each pair of X and y
-        A_init,w_init,pi_init = model.generate_params() 
-        lls_org,A_org,w_org,_ = model.fit(y_org,X_org,A_init,w_init)
-        ll_org = find_last_non_nan_elements(lls_org.reshape(1, -1))
-        
-        A_init,w_init,pi_init = model.generate_params() 
-        lls_t,A_t,w_t,_ = model.fit(y_shf_t,X_shf_t,A_init,w_init)
-        ll_t = find_last_non_nan_elements(lls_t.reshape(1, -1))
-        
-        A_init,w_init,pi_init = model.generate_params() 
-        lls_y,_,_,_ = model.fit(y_shf_y,X_shf_y,A_init,w_init)
-        ll_y = find_last_non_nan_elements(lls_y.reshape(1, -1))
-    
-        A_orgs.append(A_org)
-        A_ts.append(A_t)
-        w_orgs.append(w_org)
-        w_ts.append(w_t)
+        X_shf_X = shfl_X_data[:,1:-1]
+        y_shf_X = shfl_X_data[:,-1]
+
+        # update
+        alldata['shf_t'].update({'X':X_shf_t, 'y':y_shf_t})
+        alldata['shf_X'].update({'X':X_shf_X, 'y':y_shf_X})
+                   
+        ### Train and test the model
+        for j in range(num_folds):
+            #print('Fold %s' %j)
+            start_idx = i * fold_size
+            end_idx = min((i + 1) * fold_size, len(data))
+            
+            # Split data into train and test sets
+            testidx = np.arange(start_idx, end_idx)
+            if end_idx < len(data):
+                trainidx = np.concatenate((np.arange(0, start_idx), np.arange(end_idx, len(data))), axis=0)
+            else:
+                trainidx = np.arange(0, start_idx)
+            #print('train size', len(trainidx))
+
+            # Fit model for each pair of X and y
+            for datatype in ['orig', 'shf_t', 'shf_X']:
+                
+                X = alldata[datatype]['X']
+                y = alldata[datatype]['y']
+                res = alldata[datatype]['res']
+                probR = np.sum(y[trainidx])/len(trainidx)
+
+                model.n = len(trainidx)
+                lls,A,w,pi0 = model.fit(y[trainidx],X[trainidx], A_init,w_init,pi0=pi_init, fit_init_states=True)
+                ll = find_last_non_nan_elements(lls.reshape(1, -1))
+                res['lls_train'][i,j] = ll
+                res['A_all'][i,j] = A
+                res['w_all'][i,j] = w
+                res['pi0_all'][i,j] = pi0
+            
+                # convert inferred weights into observation probabilities for each state
+                phi = np.zeros((len(X[testidx]),K,C))
+                for k in range(K):
+                    phi[:,k,:] = model.glm.compObs(X[testidx],w[k,:,:])
+
+                # compute inferred log-likelihoods
+                #model.n = len(testidx)
+                ll_test,_,_,_ = model.forwardPass(y[testidx],A,phi)
+                res['lls_test'][i,j] = ll_test
+                res['ll0'][i,j] = np.log(probR) * np.sum(y[trainidx]) + np.log(1 - probR) * (len(y[trainidx]) - np.sum(y[trainidx])) # base probability
+                
+                ## update resutls
+                alldata[datatype].update({'res':res})
 
     
+    return alldata['orig']['res'], alldata['shf_t']['res'], alldata['shf_X']['res'], train_size, test_size
 
     
