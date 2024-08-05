@@ -5,7 +5,7 @@ import numpy as np
 from glmhmm.glm_hmm import *
 from glmhmm.utils import *
 sys.path.insert(0, '..')
-from preprocessing.utils2 import *
+from preprocessing import utils2 as ut
 
 
 # Cross Validation
@@ -21,10 +21,10 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
     # Get data from the given path
     if path is None: #use data from all animals
         data=[]
-        for root, dirs, files in os.walk(alldata):
+        for root, dirs, _ in os.walk(alldata):
             for dir in dirs:
                 subdir_path = os.path.join(root, dir)
-                subdata = Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
+                subdata = ut.Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
                 print(subdir_path)
                 #print(subdata.shape)
                 data.append(subdata)
@@ -34,21 +34,21 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
         data = []
         for subdir in path:
             if os.path.isdir(subdir):
-                subdata = Dataloader_ani(subdir, nprev = nprev, exig = exig)
+                subdata = ut.Dataloader_ani(subdir, nprev = nprev, exig = exig)
             elif os.path.isdir( alldata+subdir):
-                subdata = Dataloader_ani(alldata+subdir, nprev = nprev, exig = exig)
+                subdata = ut.Dataloader_ani(alldata+subdir, nprev = nprev, exig = exig)
             elif os.path.isfile(subdir):
-                subdata = Dataloader_sess(subdir, nprev = nprev, exig = exig)
+                subdata = ut.Dataloader_sess(subdir, nprev = nprev, exig = exig)
             elif os.path.isfile(alldata+subdir):
-                subdata = Dataloader_sess(alldata+subdir, nprev = nprev, exig = exig)
+                subdata = ut.Dataloader_sess(alldata+subdir, nprev = nprev, exig = exig)
             data.append(subdata)
         data = np.concatenate(data, axis = 0)
                 
     elif os.path.isfile(path):  # single session
-        data = Dataloader_sess(path, nprev = nprev, exig = exig)
+        data = ut.Dataloader_sess(path, nprev = nprev, exig = exig)
         
     elif os.path.isdir(path):   # single animal
-        data = Dataloader_ani(path, nprev = nprev, exig = exig)
+        data = ut.Dataloader_ani(path, nprev = nprev, exig = exig)
         #print(data.shape)
     
     else:
@@ -77,7 +77,7 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
     pi0_all = np.zeros((num_init, num_folds,K))
 
     # Set up the model
-    model = GLMHMM(N,D,C,K,observations=prob) # set up a new GLM-HMM
+    model = GLMHMM(n=N,d=D,c=C,k=K,observations=prob) # set up a new GLM-HMM
     
     # Perform cross-validation
     fold_size = len(data) // num_folds
@@ -95,13 +95,14 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
                 train_data = data[:start_idx]
     
             X_train = train_data[:,1:-1]
-            y_train = train_data[:,-1:]
+            y_train = train_data[:,-1]
             X_test = test_data[:,1:-1]
-            y_test = test_data[:,-1:]
+            y_test = test_data[:,-1]
             probR = np.sum(y_train)/len(y_train)
-            #print(y_test.shape)
-    
+
+            model.n = len(y_train)
             ll, A, w, pi0 = model.fit(y_train,X_train,A_init,w_init,pi0=pi_init, fit_init_states=True) # fit the model on trainset
+            #print(np.linalg.norm(w-w_init))
             ll = find_last_non_nan_elements(ll.reshape(1, -1))
             lls_train[j, i] = ll[0]
             A_all[j,i] = A
@@ -170,9 +171,9 @@ def GridSearch(path, exig, P=4, L=7):
 # Fine-tune on small data(a file)
 def FineTune(path, nprev, exig, num_latent,A_init,w_init,pi_init=None, tol=3e-4):
     if os.path.isfile(path):
-        data = Dataloader_sess(path, nprev = nprev, exig = exig)
+        data = ut.Dataloader_sess(path, nprev = nprev, exig = exig)
     elif os.path.isdir(path):
-        data = Dataloader_ani(path, nprev = nprev, exig = exig)
+        data = ut.Dataloader_ani(path, nprev = nprev, exig = exig)
     else:
         raise ValueError("The input is neither a file or a folder")
         
@@ -188,8 +189,8 @@ def FineTune(path, nprev, exig, num_latent,A_init,w_init,pi_init=None, tol=3e-4)
     model = GLMHMM(N,D,C,K,observations=prob)
     _,_,_ = model.generate_params()
     X = data[:,1:-1]
-    y = data[:,-1:]
-    ll, A, w, pi0 = model.fit(y,X,A_init,w_init, pi0=pi_init, fit_init_states=True,tol=tol)
+    y = data[:,-1]
+    ll, A, w, pi0 = model.fit(y,X, A_init,w_init, pi0=pi_init, fit_init_states=True,tol=tol)
     ll = find_last_non_nan_elements(ll.reshape(1, -1))
     y = y.ravel()
     return ll,A,w,pi0, X,y,N,K,D,C
@@ -240,14 +241,14 @@ def ShuffleControl(path, nprev, exig, num_latent, num_init = 10, num_folds=10,
         for root, dirs, files in os.walk(alldata):
             for dir in dirs:
                 subdir_path = os.path.join(root, dir)
-                subdata = Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
+                subdata = ut.Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
                 data.append(subdata)
         data = np.concatenate(data, axis = 0)
                 
     elif os.path.isfile(path):
-        data = Dataloader_sess(path, nprev = nprev, exig = exig)
+        data = ut.Dataloader_sess(path, nprev = nprev, exig = exig)
     elif os.path.isdir(path):
-        data = Dataloader_ani(path, nprev = nprev, exig = exig)
+        data = ut.Dataloader_ani(path, nprev = nprev, exig = exig)
         #print(data.shape)
     else:
         raise ValueError("The input is neither a file or a folder")
