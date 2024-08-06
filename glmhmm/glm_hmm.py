@@ -290,6 +290,7 @@ class GLMHMM(HMM):
             # CHECK FOR CONVERGENCE    
             self.lls[n] = ll
             if  n > 5 and self.lls[n-5] + tol >= ll: # break early if tolerance is reached
+                print('Converged after',n,'iterations')
                 break
         
         self.A,self.w,self.phi,self.pi0 = A,w,phi,pi0

@@ -77,7 +77,7 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
     pi0_all = np.zeros((num_init, num_folds,K))
 
     # Set up the model
-    model = GLMHMM(n=N,d=D,c=C,k=K,observations=prob) # set up a new GLM-HMM
+    model = GLMHMM(n=N,d=D,c=C,k=K,observations=prob, gaussianPrior=1) # set up a new GLM-HMM
     
     # Perform cross-validation
     fold_size = len(data) // num_folds
@@ -186,7 +186,7 @@ def FineTune(path, nprev, exig, num_latent,A_init,w_init,pi_init=None, tol=3e-4)
     else:
         C = 3 # number of observation classes
         prob = "multinomial"
-    model = GLMHMM(N,D,C,K,observations=prob)
+    model = GLMHMM(n=N,d=D,c=C,k=K,observations=prob)
     _,_,_ = model.generate_params()
     X = data[:,1:-1]
     y = data[:,-1]
