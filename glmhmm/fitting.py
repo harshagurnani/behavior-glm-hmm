@@ -171,9 +171,9 @@ def GridSearch(path, exig, P=4, L=7):
             std_trainll_matrix[nprev,num_latent-1] = np.std(lls_train)
 
             # Select the optimal configuration using validation/test loglikelihood
-            argminx,argminy = np.unravel_index(np.argmax(avg_testll_matrix), avg_testll_matrix.shape)
-            opt_nprev = argminx
-            opt_latent = argminy + 1
+            argmaxx,argmaxy = np.unravel_index(np.argmax(avg_testll_matrix), avg_testll_matrix.shape)
+            opt_nprev = argmaxx
+            opt_latent = argmaxy + 1
     return opt_nprev, opt_latent, avg_testll_matrix, avg_trainll_matrix, std_testll_matrix, std_trainll_matrix, train_size, test_size
 
 
