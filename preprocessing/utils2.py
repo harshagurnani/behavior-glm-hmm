@@ -48,7 +48,7 @@ def data_for_psy(efile, nprev=3, exclude_ignore = True):
 
 
 def Dataloader_sess(file, nprev=3, exig=True):
-    
+
     D, use_id = data_for_psy(file, nprev = nprev, exclude_ignore = exig)
     
     # t = np.array(use_id).reshape(-1, 1)
@@ -58,17 +58,24 @@ def Dataloader_sess(file, nprev=3, exig=True):
 
     # matrix = t| x |y
     matrix = np.concatenate([t,x,y], axis = 1)
+    sess = np.array([0, len(matrix)])
     
-    return matrix
+
+    return matrix, sess
 
 
 def Dataloader_ani(directory, nprev = 3, exig = True):
     # Loop through all files in the directory
+    sess = [0]
     matrix_list = []
+    accum_t = 0
     for filename in os.listdir(directory):
         if filename.endswith(".csv"):
-            submatrix = Dataloader_sess(directory + '/' +  filename, nprev = nprev, exig = exig)
+            submatrix, subsess = Dataloader_sess(directory + '/' +  filename, nprev = nprev, exig = exig)
+            accum_t += len(submatrix)
             matrix_list.append(submatrix)
+            sess.append(accum_t)
     matrix = np.concatenate(matrix_list, axis = 0)
     matrix[:,0] = np.arange(1, len(matrix) + 1)
-    return matrix
+    sess = np.array(sess)
+    return matrix, sess

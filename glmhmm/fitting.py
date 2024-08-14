@@ -4,6 +4,7 @@ import os
 import numpy as np
 from glmhmm.glm_hmm import *
 from glmhmm.utils import *
+import matplotlib.pyplot as plt
 sys.path.insert(0, '..')
 from preprocessing import utils2 as ut
 
@@ -18,15 +19,20 @@ from preprocessing import utils2 as ut
 # This is because EM alg doesn't guarantee to find the global minimum
 def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3, verbose=False, alldata='../example_data/' ):
     
+    sess = np.array([0])
+    accum_t = 0
     # Get data from the given path
     if path is None: #use data from all animals
         data=[]
+
         for root, dirs, _ in os.walk(alldata):
             for dir in dirs:
                 subdir_path = os.path.join(root, dir)
-                subdata = ut.Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
                 print(subdir_path)
-                #print(subdata.shape)
+                subdata, subsess = ut.Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
+                # update
+                sess = np.concatenate([sess, subsess[1:] + accum_t])
+                accum_t += len(subdata)
                 data.append(subdata)
         data = np.concatenate(data, axis = 0)
 
@@ -34,26 +40,30 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
         data = []
         for subdir in path:
             if os.path.isdir(subdir):
-                subdata = ut.Dataloader_ani(subdir, nprev = nprev, exig = exig)
+                subdata, subsess = ut.Dataloader_ani(subdir, nprev = nprev, exig = exig)
             elif os.path.isdir( alldata+subdir):
-                subdata = ut.Dataloader_ani(alldata+subdir, nprev = nprev, exig = exig)
+                subdata, subsess = ut.Dataloader_ani(alldata+subdir, nprev = nprev, exig = exig)
             elif os.path.isfile(subdir):
-                subdata = ut.Dataloader_sess(subdir, nprev = nprev, exig = exig)
+                subdata, subsess = ut.Dataloader_sess(subdir, nprev = nprev, exig = exig)
             elif os.path.isfile(alldata+subdir):
-                subdata = ut.Dataloader_sess(alldata+subdir, nprev = nprev, exig = exig)
+                subdata, subsess = ut.Dataloader_sess(alldata+subdir, nprev = nprev, exig = exig)
             data.append(subdata)
+            sess = np.concatenate([sess, subsess[1:] + accum_t])
+            accum_t += len(subdata)
         data = np.concatenate(data, axis = 0)
                 
     elif os.path.isfile(path):  # single session
-        data = ut.Dataloader_sess(path, nprev = nprev, exig = exig)
+        data, sess = ut.Dataloader_sess(path, nprev = nprev, exig = exig)
         
     elif os.path.isdir(path):   # single animal
-        data = ut.Dataloader_ani(path, nprev = nprev, exig = exig)
-        #print(data.shape)
+        data, sess = ut.Dataloader_ani(path, nprev = nprev, exig = exig)
     
     else:
         raise ValueError("The input is neither a file or a folder")
-        
+    
+    assert np.all(sess[:-1] < sess[1:])
+    assert sess[-1] == len(data) 
+
     # Model parameters
     N = len(data) - len(data)//num_folds # number of data/time points
     train_size = N
@@ -101,7 +111,7 @@ def CrossValidation(path, nprev, exig, num_latent, num_folds = 10, num_init = 3,
             probR = np.sum(y_train)/len(y_train)
 
             model.n = len(y_train)
-            ll, A, w, pi0 = model.fit(y_train,X_train,A_init,w_init,pi0=pi_init, fit_init_states=True) # fit the model on trainset
+            ll, A, w, pi0 = model.fit(y_train,X_train,A_init,w_init,pi0=pi_init, fit_init_states=True, sess=sess) # fit the model on trainset
             #print(np.linalg.norm(w-w_init))
             ll = find_last_non_nan_elements(ll.reshape(1, -1))
             lls_train[j, i] = ll[0]
@@ -169,14 +179,52 @@ def GridSearch(path, exig, P=4, L=7):
 
 
 # Fine-tune on small data(a file)
-def FineTune(path, nprev, exig, num_latent,A_init,w_init,pi_init=None, tol=3e-4):
-    if os.path.isfile(path):
-        data = ut.Dataloader_sess(path, nprev = nprev, exig = exig)
-    elif os.path.isdir(path):
-        data = ut.Dataloader_ani(path, nprev = nprev, exig = exig)
+def FineTune(path, nprev, exig, num_latent,A_init,w_init,pi_init=None, tol=3e-4, alldata='../example_data/' ):
+    sess = np.array([0])
+    accum_t = 0
+    # Get data from the given path
+    if path is None: #use data from all animals
+        data=[]
+
+        for root, dirs, _ in os.walk(alldata):
+            for dir in dirs:
+                subdir_path = os.path.join(root, dir)
+                print(subdir_path)
+                subdata, subsess = ut.Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
+                # update
+                sess = np.concatenate([sess, subsess[1:] + accum_t])
+                accum_t += len(subdata)
+                data.append(subdata)
+        data = np.concatenate(data, axis = 0)
+
+    elif isinstance( path, list ): # read data from a list of folders
+        data = []
+        for subdir in path:
+            if os.path.isdir(subdir):
+                subdata, subsess = ut.Dataloader_ani(subdir, nprev = nprev, exig = exig)
+            elif os.path.isdir( alldata+subdir):
+                subdata, subsess = ut.Dataloader_ani(alldata+subdir, nprev = nprev, exig = exig)
+            elif os.path.isfile(subdir):
+                subdata, subsess = ut.Dataloader_sess(subdir, nprev = nprev, exig = exig)
+            elif os.path.isfile(alldata+subdir):
+                subdata, subsess = ut.Dataloader_sess(alldata+subdir, nprev = nprev, exig = exig)
+            data.append(subdata)
+            sess = np.concatenate([sess, subsess[1:] + accum_t])
+            accum_t += len(subdata)
+        data = np.concatenate(data, axis = 0)
+                
+    elif os.path.isfile(path):  # single session
+        data, sess = ut.Dataloader_sess(path, nprev = nprev, exig = exig)
+        
+    elif os.path.isdir(path):   # single animal
+        data, sess = ut.Dataloader_ani(path, nprev = nprev, exig = exig)
+    
     else:
         raise ValueError("The input is neither a file or a folder")
-        
+    
+    assert np.all(sess[:-1] < sess[1:])
+    assert sess[-1] == len(data) 
+
     N = len(data) # number of data/time points
     K = num_latent # number of latent states
     D = data.shape[1] - 2 # number of GLM inputs (regressors)
@@ -190,7 +238,7 @@ def FineTune(path, nprev, exig, num_latent,A_init,w_init,pi_init=None, tol=3e-4)
     _,_,_ = model.generate_params()
     X = data[:,1:-1]
     y = data[:,-1]
-    ll, A, w, pi0 = model.fit(y,X, A_init,w_init, pi0=pi_init, fit_init_states=True,tol=tol)
+    ll, A, w, pi0 = model.fit(y,X, A_init,w_init, pi0=pi_init, fit_init_states=True,tol=tol, sess = sess)
     ll = find_last_non_nan_elements(ll.reshape(1, -1))
     y = y.ravel()
     return ll,A,w,pi0, X,y,N,K,D,C
@@ -233,25 +281,104 @@ def mostProbSeq( y, A, pi0, phi=None, X=None, w=None ):
     return bestpath
 
 
+def statesProb(y, A, pi0, phi=None, X=None, w=None, vis = False):
+    """
+    Computes the state probabilities given observations and model parameters.
+    
+    Parameters:
+    -----------
+    y : numpy.ndarray
+        A 1D array of observations with shape (N,), where N is the number of time steps.
+    A : numpy.ndarray
+        The state transition matrix of shape (K, K), where K is the number of hidden states.
+    pi0 : numpy.ndarray
+        The initial state distribution vector of shape (K,).
+    phi : numpy.ndarray, optional
+        The emission probability matrix of shape (N, K, C), where C is the number of possible observations.
+        If not provided, it will be computed using X and w.
+    X : numpy.ndarray, optional
+        A feature matrix of shape (N, d), where d is the number of features. Required if `phi` is not provided.
+    w : numpy.ndarray, optional
+        A weight matrix of shape (K, d, C) used to compute the emission probabilities. Required if `phi` is not provided.
+    vis : bool, optional
+        If True, visualizes the state probabilities over time.
+
+    Returns:
+    --------
+    pBack : numpy.ndarray
+        A matrix of state probabilities with shape (N, K), where pBack[t, i] represents the probability of being in state i at time t.
+
+    Raises:
+    -------
+    ValueError
+        If `phi` is not provided and either `X` or `w` is not provided.
+    """
+
+    K = A.shape[0]
+    N = y.shape[0]
+    
+    if phi is None:
+        if (X is not None) and (w is not None):
+            C = w.shape[-1]
+            # Emission Probablity matrix
+            phi = np.zeros((N,K,C))      
+            for i in range(K):
+                p = np.exp(X @ w[i,:,:]) 
+                phi[:,i,:] = np.divide(p.T,np.sum(p,axis=1)).T
+        else:
+            raise ValueError("Emission probs cannot be computed")
+    else:
+        C = phi.shape[-1]
+
+    model = HMM(N, 1, C, K) # the value d doesn't effect the computation
+    _,alpha,_,cs = model.forwardPass(y,A,phi, pi0)
+    pBack, _, _ = model.backwardPass(y, A, phi, alpha, cs)
+    
+    if vis:
+        plt.figure()
+        xs = np.arange(N)
+        for i in range(K):
+            plt.plot(xs, pBack[:,i], label=f'State {i}')
+        plt.xlabel("Time")
+        plt.ylabel("Probability")
+        plt.legend()
+        plt.figure()
+        xs = np.arange(N)
+        plt.stackplot(xs, pBack.T, labels=[f'State {i}' for i in range(K)])
+        plt.xlabel("Time")
+        plt.ylabel("Probability")
+        plt.legend()
+    return pBack
+
+
 def ShuffleControl(path, nprev, exig, num_latent, num_init = 10, num_folds=10, 
                    verbose=False, alldata='../example_data/' ):
     # Get data from the given path
     if path is None: #use data from all animals
         data=[]
+        accum_t = 0
+        sess=np.array([0])
         for root, dirs, files in os.walk(alldata):
             for dir in dirs:
                 subdir_path = os.path.join(root, dir)
-                subdata = ut.Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
+                subdata, subsess = ut.Dataloader_ani(subdir_path, nprev = nprev, exig = exig)
+
                 data.append(subdata)
+                sess = np.concatenate([sess, subsess[1:] + accum_t])
+                accum_t += len(subdata)
+
         data = np.concatenate(data, axis = 0)
                 
     elif os.path.isfile(path):
-        data = ut.Dataloader_sess(path, nprev = nprev, exig = exig)
+        data, sess = ut.Dataloader_sess(path, nprev = nprev, exig = exig)
     elif os.path.isdir(path):
-        data = ut.Dataloader_ani(path, nprev = nprev, exig = exig)
+        data, sess = ut.Dataloader_ani(path, nprev = nprev, exig = exig)
         #print(data.shape)
     else:
         raise ValueError("The input is neither a file or a folder")
+
+    assert np.all(sess[:-1] < sess[1:])
+    assert sess[-1] == len(data) 
 
     N = len(data) - len(data)//num_folds # number of data/time points
     K = num_latent # number of latent states
@@ -320,7 +447,7 @@ def ShuffleControl(path, nprev, exig, num_latent, num_init = 10, num_folds=10,
                 probR = np.sum(y[trainidx])/len(trainidx)
 
                 model.n = len(trainidx)
-                lls,A,w,pi0 = model.fit(y[trainidx],X[trainidx], A_init,w_init,pi0=pi_init, fit_init_states=True)
+                lls,A,w,pi0 = model.fit(y[trainidx],X[trainidx], A_init,w_init,pi0=pi_init, fit_init_states=True, sess=sess)
                 ll = find_last_non_nan_elements(lls.reshape(1, -1))
                 res['lls_train'][i,j] = ll
                 res['A_all'][i,j] = A
